@@ -1,0 +1,9 @@
+ext {
+    moduleLibraryName = "zygiskdemo"
+    magiskModuleId = "zygisk_demo"
+    moduleName = "zygiskdemo"
+    moduleAuthor = "jiyulan"
+    moduleDescription = "zygisk模块开发模版"
+    moduleVersion = "v0.01"
+    moduleVersionCode = 1
+}
