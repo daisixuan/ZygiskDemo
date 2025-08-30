@@ -60,6 +60,7 @@ afterEvaluate {
             dependsOn("assemble$variantCapped")
 
             def templatePath = "$rootDir/template/magisk_module"
+            def gadgetPath = "$rootDir/gadget"
 
             into magiskDir
             from(templatePath) {
@@ -78,6 +79,7 @@ afterEvaluate {
                 filter(FixCrLfFilter.class,
                         eol: FixCrLfFilter.CrLf.newInstance("lf"))
             }
+            from(gadgetPath) // Added this line to copy files from gadgetPath
             from("$buildDir/intermediates/stripped_native_libs/$variantLowered/strip${variant.name}DebugSymbols/out/lib") {
                 into 'lib'
             }

@@ -24,3 +24,7 @@
 ```
 
 这将编译 C++ 代码，打包必要的文件，并在 `out/magisk_module_release/` 目录中创建可刷写的 ZIP 文件。
+
+
+
+目前module中的demo是一个注入frida-gadget.so的案例

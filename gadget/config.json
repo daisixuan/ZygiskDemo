@@ -1,0 +1,10 @@
+{
+    "com.hackcatml.test": {
+        "config": "你的配置文件位置",
+        "gadget": "gadget文件位置",
+        "delay": 300000
+    },
+    "com.example.nativeproject": {},
+    "com.xingin.xhs": {},
+    "com.shengtuantuan.android": {}
+}

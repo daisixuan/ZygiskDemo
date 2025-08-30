@@ -28,9 +28,15 @@ set(CMAKE_SHARED_LINKER_FLAGS "${CMAKE_SHARED_LINKER_FLAGS} ${LINKER_FLAGS}")
 set(CMAKE_MODULE_LINKER_FLAGS "${CMAKE_MODULE_LINKER_FLAGS} ${LINKER_FLAGS}")
 
 
+include_directories(
+        xdl/include
+)
+
+aux_source_directory(xdl xdl-src)
+
 add_library(${MODULE_NAME} SHARED
         main.cpp
-        hack.cpp
+        ${xdl-src}
 )
 
 target_link_libraries(${MODULE_NAME}
