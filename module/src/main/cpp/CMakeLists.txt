@@ -36,6 +36,10 @@ aux_source_directory(xdl xdl-src)
 
 add_library(${MODULE_NAME} SHARED
         main.cpp
+        inject.cpp
+        newriruhide.cpp
+        pmparser.cpp
+        SystemServerInject.cpp
         ${xdl-src}
 )
 

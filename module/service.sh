@@ -6,7 +6,7 @@ export PATH=/system/bin:/system/xbin:$PATH
 
 # 定义日志函数
 log() {
-    echo "[sample example] $(date '+%Y-%m-%d %H:%M:%S') $1" >> /data/local/tmp/sample.log
+    echo "[JYLModule] $(date '+%Y-%m-%d %H:%M:%S') $1" >> /data/local/tmp/jylmodule.log
 }
 
 # 等待系统完全启动
@@ -24,6 +24,7 @@ log "检测到系统版本: SDK $SDK_VERSION"
 # 确保模块目录权限正确
 chmod -R 755 /data/adb/modules/zygisk-sample
 chown -R root:root /data/adb/modules/zygisk-sample
+chmod 644 /system/framework/mysystemservice.jar
 
 log "安装脚本执行完成"
 

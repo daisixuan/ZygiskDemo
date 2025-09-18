@@ -4,7 +4,20 @@
         "gadget": "gadget文件位置",
         "delay": 300000
     },
-    "com.example.nativeproject": {},
-    "com.xingin.xhs": {},
-    "com.shengtuantuan.android": {}
+    "com.example.nativeproject": {
+        "load": "Standard"
+    },
+    "com.xingin.xhs": {
+        "load": "Standard"
+    },
+    "com.shengtuantuan.android": {
+        "load": "Standard",
+        "delay": 300000
+    },
+    "io.github.vvb2060.mahoshojo": {
+
+    },
+    "com.zhenxi.hunter": {
+
+    }
 }

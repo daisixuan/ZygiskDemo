@@ -1,0 +1,52 @@
+# APatch SELinux 策略规则文件
+# 允许 system_server 注册自定义系统服务
+
+# 基本权限 - 允许 system_server 管理服务
+allow system_server service_manager_type service_manager { add find list }
+allow system_server servicemanager service_manager { add find list }
+
+# 更具体的服务管理器权限
+allow system_server default_service service_manager { add find }
+allow system_server servicemanager_type service_manager { add find }
+
+# Binder通信权限 - 关键！
+allow system_server system_server binder { call transfer set_context_mgr }
+allow system_server servicemanager binder { call transfer }
+allow servicemanager system_server binder { call transfer }
+
+# 创建自定义服务类型并允许操作
+type custom_system_service, service_manager_type;
+allow system_server custom_system_service service_manager { add find }
+
+# 应用访问服务权限
+allow { untrusted_app platform_app system_app } custom_system_service service_manager find
+allow { untrusted_app platform_app system_app } default_service service_manager find
+
+# 文件系统访问权限
+allow system_server system_file file { read open getattr execute }
+
+# 属性设置权限
+allow system_server property_type property_service set
+allow system_server default_prop property_service set
+
+# 进程间通信权限
+allow system_server system_server capability { dac_override dac_read_search }
+
+# 内存映射权限
+allow system_server system_server process { execmem }
+
+# 网络权限（如果服务需要）
+# allow system_server system_server tcp_socket { create bind connect listen accept }
+
+# 调试权限（生产环境可移除）
+allow system_server init unix_stream_socket { connectto }
+
+# 确保服务可以被其他进程发现
+neverallow { domain -system_server -servicemanager } custom_system_service service_manager add;
+
+allow { untrusted_app platform_app system_app } system_server binder { call transfer };
+
+
+type my_custom_manager_service, system_api_service, system_server_service, service_manager_type;
+allow system_server my_custom_manager_service service_manager { add find }
+allow untrusted_app  my_custom_manager_service service_manager find;

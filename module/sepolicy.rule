@@ -1,0 +1,48 @@
+# APatch SELinux 策略规则文件
+# 允许 system_server 注册自定义系统服务
+
+# 定义自定义服务类型
+type my_custom_manager_service, service_manager_type;
+
+# 基本权限 - 允许 system_server 管理服务
+allow system_server service_manager_type service_manager { add find list }
+allow system_server servicemanager service_manager { add find list }
+allow system_server self:binder { call transfer set_context_mgr };
+
+# 让 servicemanager 知道我们的服务
+allow servicemanager my_custom_manager_service:service_manager { add find search getattr read watch execute setattr list };
+allow servicemanager system_server:binder { transfer call };
+
+# Service Manager 相关权限
+allow servicemanager system_server:binder { call transfer }
+allow servicemanager system_server:dir search;
+allow servicemanager system_server:file { open read }
+allow servicemanager system_server:process getattr;
+
+
+# 可能的 Zygisk 相关上下文
+allow zygote my_custom_manager_service:service_manager { add find search getattr read watch execute setattr list };
+allow zygote servicemanager:service_manager { add find };
+allow { appdomain untrusted_app untrusted_app_29 untrusted_app_30 untrusted_app_31 untrusted_app_32 platform_app priv_app system_app } zygote:binder { call transfer };
+allow zygote { appdomain untrusted_app untrusted_app_29 untrusted_app_30 untrusted_app_31 untrusted_app_32 platform_app priv_app system_app }:binder { call transfer };
+
+
+
+# 更具体的服务管理器权限
+allow system_server default_service service_manager { add find }
+allow system_server servicemanager_type service_manager { add find }
+allow system_server shell_data_file dir {search}
+allow system_server shell_data_file file {open read getattr}
+
+
+# 创建自定义服务类型并允许操作
+allow system_server my_custom_manager_service service_manager { add find search getattr read watch execute setattr list }
+
+# 应用访问服务权限
+allow { untrusted_app untrusted_app_29 untrusted_app_27 platform_app priv_app system_app } my_custom_manager_service service_manager find;
+allow { untrusted_app untrusted_app_29 untrusted_app_27 platform_app priv_app system_app } system_server:binder { call transfer };
+allow { untrusted_app platform_app system_app } default_service service_manager { find };
+
+
+# Binder 通信权限 - 确保应用可以与服务通信
+allow system_server { untrusted_app untrusted_app_29 untrusted_app_27 platform_app priv_app system_app }:binder { call transfer };

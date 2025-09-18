@@ -10,10 +10,13 @@
 #include <regex>
 #include <sys/stat.h>
 
+#include "SystemServerInject.h"
 #include "zygisk.hpp"
 #include "nlohmann/json.hpp"
 #include "xdl.h"
 #include "log.h"
+#include "inject.h"
+
 using zygisk::Api;
 using zygisk::AppSpecializeArgs;
 using zygisk::ServerSpecializeArgs;
@@ -22,43 +25,6 @@ using json = nlohmann::json;
 
 #define BUFFER_SIZE 1024
 
-
-void injection_thread(const char* target_package_name, const std::string& lib_dir, const std::string& frida_gadget_name, const std::string& frida_config_name, uint time_to_sleep) {
-    LOGD("Frida-gadget injection thread start for %s, gadget name: %s, usleep: %d", target_package_name, frida_gadget_name.c_str(), time_to_sleep);
-    usleep(time_to_sleep);
-
-    // 修改路径为安装目录下的 lib/arm64 目录
-    std::string gadget_path = lib_dir + frida_gadget_name;
-    std::string config_path = lib_dir + frida_config_name;
-
-    std::ifstream gadget_file(gadget_path);
-    if (gadget_file) {
-        LOGD("Gadget is ready to load from %s", gadget_path.c_str());
-    } else {
-        LOGD("Cannot find gadget in %s", gadget_path.c_str());
-        return;
-    }
-
-    void* handle = xdl_open(gadget_path.c_str(), 1);
-    if (handle) {
-        LOGD("Frida-gadget loaded");
-    } else {
-        LOGD("Frida-gadget failed to load");
-    }
-
-    // 如果有权限，可以尝试删除文件
-    if (unlink(gadget_path.c_str()) == 0) {
-        LOGD("Deleted gadget file: %s", gadget_path.c_str());
-    } else {
-        LOGD("Failed to delete gadget file: %s", gadget_path.c_str());
-    }
-
-    if (unlink(config_path.c_str()) == 0) {
-        LOGD("Deleted config file: %s", config_path.c_str());
-    } else {
-        LOGD("Failed to delete config file: %s", config_path.c_str());
-    }
-}
 
 std::string getPathFromFd(int fd) {
     char buf[PATH_MAX];
@@ -143,6 +109,7 @@ public:
         std::string result_str = readString(fd);
         json result = json::parse(result_str);
         if (result["code"] != 0){
+            api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
             return;
         }
         load = true;
@@ -150,7 +117,10 @@ public:
         frida_config_name = result["frida_config_name"];
         delay = result["delay"];
         lib_dir = result["lib_dir"]; // 获取安装目录
+        load_mode = result["load_mode"];
         target_package_name = strdup(package_name);
+        env->ReleaseStringUTFChars(args->nice_name, package_name);
+        env->ReleaseStringUTFChars(args->app_data_dir, app_data_dir);
     }
 
     void postAppSpecialize(const AppSpecializeArgs *args) override {
@@ -158,13 +128,31 @@ public:
             // 将安装目录传递给注入线程
             JavaVM *vm = nullptr;
             if (env->GetJavaVM(&vm) == JNI_OK) {
-                std::thread t(injection_thread, target_package_name, lib_dir, frida_gadget_name,
-                              frida_config_name, delay);
+                std::thread t(inject_prepare, target_package_name, lib_dir, frida_gadget_name,
+                              frida_config_name, load_mode, delay, vm);
                 t.detach();
             }else {
                 LOGE("Failed to get JavaVM");
             }
         }
+    }
+
+    void preServerSpecialize(ServerSpecializeArgs *args) override {
+        int uid = args->uid;
+        int gid = args->gid;
+        LOGI("preServerSpecialize for uid: %d, gid: %d", uid, gid);
+        api->setOption(zygisk::DLCLOSE_MODULE_LIBRARY);
+    }
+
+    void postServerSpecialize(const ServerSpecializeArgs *args) override {
+//        if (args->uid != 1000) return; // 确保是system用户
+//        LOGI("postSystemServerSpecialize: system_server has specialized.");
+//
+//        if (env) {
+//            loadCustomJar(env);
+//        }else{
+//            LOGE("postSystemServerSpecialize: JNIEnv没有");
+//        }
     }
 
 private:
@@ -176,6 +164,8 @@ private:
     std::string frida_gadget_name;
     std::string frida_config_name;
     std::string lib_dir; // 新增成员变量
+    std::string load_mode;
+    std::string dex_name;
 };
 
 // 修改后的 companion_handler 函数
@@ -189,6 +179,7 @@ static void companion_handler(int i) {
     std::string frida_gadget_name = "libjyl.so";
     std::string frida_config_name = "libjyl.config.so";
     uint delay = 300000;
+    std::string load_mode = "Standard";
 
     json result;
     std::ifstream file(config_file_path);
@@ -215,6 +206,11 @@ static void companion_handler(int i) {
     snprintf(buffer, sizeof(buffer), "/data/data/%s/files/", package_name.c_str());
     std::string lib_dir = buffer;
 
+//    int data_dir_fd = openat(-100, data_dir.c_str(), O_NONBLOCK);
+//    int newfd = dup(data_dir_fd);
+//    std::string real_data_dir = getPathFromFd(newfd);
+//    LOGD("real_data_dir: %s", real_data_dir.c_str());
+
 
     if (lib_dir.empty()) {
         result["code"] = 3;
@@ -231,6 +227,12 @@ static void companion_handler(int i) {
         delay = package_config["delay"];
     } else {
         delay = 300000;  // Default delay if not provided
+    }
+
+    if (package_config.contains("load")) {
+        load_mode = package_config["load"];
+    } else {
+        load_mode = "Standard"; // Default delay if not provided
     }
 
     // 检查并创建目录（如果需要）
@@ -266,11 +268,14 @@ static void companion_handler(int i) {
     }
     LOGD("Successfully copied gadget");
 
+
     result["frida_gadget_name"] = frida_gadget_name;
     result["frida_config_name"] = frida_config_name;
     result["delay"] = delay;
+    result["load_mode"] = load_mode;
     writeString(i, result.dump());
 }
+
 
 // 注册我们的模块类和 companion handler 函数
 REGISTER_ZYGISK_MODULE(MyModule)

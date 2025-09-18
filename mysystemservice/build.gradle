@@ -1,0 +1,277 @@
+plugins {
+    alias(libs.plugins.android.library)
+}
+
+android {
+    namespace 'com.example.mysystemservice'
+    compileSdk 34
+
+    defaultConfig {
+        minSdk 24
+        testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
+        consumerProguardFiles "consumer-rules.pro"
+    }
+
+    buildTypes {
+        debug {
+            minifyEnabled false
+            debuggable true
+        }
+        release {
+            minifyEnabled false
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
+        }
+    }
+
+    compileOptions {
+        sourceCompatibility JavaVersion.VERSION_11
+        targetCompatibility JavaVersion.VERSION_11
+    }
+
+    buildFeatures {
+        aidl true
+    }
+}
+
+dependencies {
+    implementation libs.appcompat
+    implementation libs.material
+}
+
+// 从 AAR 文件生成 DEX，然后转换为包含 DEX 的 JAR
+tasks.register('generateJarFromAAR') {
+    description = 'Generate Android-compatible JAR file containing DEX from AAR'
+    group = 'build'
+
+    dependsOn 'assembleDebug'
+
+    doLast {
+        def aarFile = file("${layout.buildDirectory.get()}/outputs/aar").listFiles()?.find {
+            it.name.endsWith('-debug.aar')
+        }
+
+        if (aarFile && aarFile.exists()) {
+            def outputDir = file("${layout.buildDirectory.get()}/outputs/jar")
+            outputDir.mkdirs()
+
+            // 从 AAR 中提取 classes.jar
+            def tempDir = file("${outputDir}/temp")
+            tempDir.mkdirs()
+
+            copy {
+                from zipTree(aarFile)
+                into tempDir
+                include 'classes.jar'
+            }
+
+            def classesJar = file("${tempDir}/classes.jar")
+            if (classesJar.exists()) {
+                println "📦 Found classes.jar: ${classesJar.absolutePath}"
+
+                // 创建DEX输出目录
+                def dexDir = file("${tempDir}/dex")
+                dexDir.mkdirs()
+
+                // 使用 d8 将 JAR 转换为 DEX
+                def d8Tool = "${android.sdkDirectory}/build-tools/${android.buildToolsVersion}/d8"
+                if (System.getProperty('os.name').toLowerCase().contains('windows')) {
+                    d8Tool += '.bat'
+                }
+
+                println "🔧 Using d8 tool: ${d8Tool}"
+                println "🔄 Converting JAR to DEX..."
+
+                try {
+                    exec {
+                        commandLine d8Tool,
+                                '--output', dexDir.absolutePath,
+                                '--min-api', android.defaultConfig.minSdk,
+                                classesJar.absolutePath
+                    }
+                } catch (Exception e) {
+                    throw new GradleException("❌ Failed to convert JAR to DEX: ${e.message}")
+                }
+
+                // 检查生成的 DEX 文件
+                def generatedDex = file("${dexDir}/classes.dex")
+                if (!generatedDex.exists()) {
+                    throw new GradleException("❌ classes.dex file not generated")
+                }
+
+                println "✅ DEX conversion successful"
+                println "📊 DEX file size: ${generatedDex.length()} bytes"
+
+                // 创建包含 DEX 的 JAR 文件
+                def targetJar = file("${outputDir}/mysystemservice.jar")
+
+                println "📦 Creating JAR file with DEX content..."
+
+                // 使用 Ant 的 zip 任务创建 JAR
+                ant.zip(destfile: targetJar.absolutePath, level: 0) {
+                    zipfileset(file: generatedDex.absolutePath, fullpath: "classes.dex")
+                }
+
+                // 验证生成的JAR文件
+                if (!targetJar.exists() || targetJar.length() == 0) {
+                    throw new GradleException("❌ Failed to create JAR file")
+                }
+
+                println "✅ JAR file created successfully"
+
+                // 验证JAR内容
+                def jarContents = []
+                zipTree(targetJar).visit { element ->
+                    if (!element.isDirectory()) {
+                        jarContents.add(element.relativePath.pathString)
+                    }
+                }
+
+                if (jarContents.contains("classes.dex")) {
+                    println "✅ JAR contains classes.dex - Android compatible format"
+                } else {
+                    throw new GradleException("❌ JAR does not contain classes.dex")
+                }
+
+                // 创建根目录的 Jar 文件夹并移动文件
+                def rootJarDir = file("${rootProject.projectDir}/Jar")
+                rootJarDir.mkdirs()
+
+                def finalJarFile = file("${rootJarDir}/mysystemservice.jar")
+                copy {
+                    from targetJar
+                    into rootJarDir
+                }
+
+                // 同时保留DEX文件到Dex目录（保持兼容性）
+                def rootDexDir = file("${rootProject.projectDir}/Dex")
+                rootDexDir.mkdirs()
+
+                def finalDexFile = file("${rootDexDir}/mysystemservice.dex")
+                copy {
+                    from generatedDex
+                    into rootDexDir
+                    rename 'classes.dex', 'mysystemservice.dex'
+                }
+
+                println ""
+                println "🎯 Build completed successfully!"
+                println "📁 Android JAR: ${finalJarFile.absolutePath}"
+                println "📁 DEX file: ${finalDexFile.absolutePath}"
+                println "📊 JAR size: ${finalJarFile.length()} bytes"
+                println "📊 DEX size: ${finalDexFile.length()} bytes"
+                println ""
+                println "✅ Ready for Magisk module deployment:"
+                println "   Copy ${finalJarFile.name} to /system/framework/"
+
+            } else {
+                throw new GradleException("❌ classes.jar not found in AAR")
+            }
+
+            // 清理临时目录
+            delete tempDir
+
+        } else {
+            throw new GradleException("❌ AAR file not found in ${file("${layout.buildDirectory.get()}/outputs/aar").absolutePath}")
+        }
+    }
+}
+
+// 清理任务
+tasks.register('cleanJar') {
+    description = 'Clean generated JAR and DEX files'
+    group = 'build'
+
+    doLast {
+        delete "${layout.buildDirectory.get()}/outputs/jar"
+        delete "${layout.buildDirectory.get()}/outputs/dex"
+        delete "${rootProject.projectDir}/Jar"
+        delete "${rootProject.projectDir}/Dex"
+        println "🧹 Cleaned JAR and DEX files from build and root directories"
+    }
+}
+
+// 验证JAR文件任务
+tasks.register('verifyJar') {
+    description = 'Verify the generated JAR file format and content'
+    group = 'build'
+
+    doLast {
+        def jarFile = file("${rootProject.projectDir}/Jar/mysystemservice.jar")
+        if (!jarFile.exists()) {
+            println "❌ JAR file not found: ${jarFile.absolutePath}"
+            return
+        }
+
+        println "🔍 Verifying JAR file: ${jarFile.name}"
+        println "📊 File size: ${jarFile.length()} bytes"
+
+        // 检查JAR内容
+        def jarContents = []
+        zipTree(jarFile).visit { element ->
+            if (!element.isDirectory()) {
+                jarContents.add(element.relativePath.pathString)
+                println "📄 Contains: ${element.relativePath.pathString}"
+            }
+        }
+
+        if (jarContents.contains("classes.dex")) {
+            println "✅ JAR is Android-compatible (contains classes.dex)"
+        } else {
+            println "❌ JAR is NOT Android-compatible"
+            println "📋 Expected: classes.dex"
+            println "📋 Found: ${jarContents}"
+        }
+
+        // 如果有dexdump工具，进行详细验证
+        def dexFile = file("${rootProject.projectDir}/Dex/mysystemservice.dex")
+        if (dexFile.exists()) {
+            println ""
+            println "🔍 DEX file analysis:"
+            println "📊 DEX size: ${dexFile.length()} bytes"
+
+            try {
+                def dexdumpCmd = ["dexdump", "-f", dexFile.absolutePath]
+                def process = dexdumpCmd.execute()
+                process.waitFor()
+                if (process.exitValue() == 0) {
+                    def output = process.inputStream.text
+                    if (output.contains("ServiceInjector")) {
+                        println "✅ ServiceInjector class found in DEX"
+                    } else {
+                        println "⚠️  ServiceInjector class not found in DEX output"
+                    }
+                } else {
+                    println "⚠️  dexdump execution failed"
+                }
+            } catch (Exception e) {
+                println "ℹ️  dexdump not available for detailed verification"
+            }
+        }
+
+        println ""
+        println "📋 Deployment instructions:"
+        println "   1. Push JAR to device: adb push ${jarFile.name} /system/framework/"
+        println "   2. Set permissions: adb shell chmod 644 /system/framework/${jarFile.name}"
+        println "   3. Restart system_server or reboot device"
+    }
+}
+
+// 一键构建 JAR 到根目录
+tasks.register('buildJar') {
+    description = 'Clean, build and generate Android-compatible JAR file'
+    group = 'build'
+
+    dependsOn 'cleanJar', 'generateJarFromAAR'
+
+    // 确保清理在生成之前执行
+    generateJarFromAAR.mustRunAfter cleanJar
+
+    finalizedBy 'verifyJar'
+}
+
+// 兼容旧的任务名
+tasks.register('buildDex') {
+    description = 'Alias for buildJar (backward compatibility)'
+    group = 'build'
+    dependsOn 'buildJar'
+}
